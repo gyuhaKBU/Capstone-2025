@@ -13,11 +13,11 @@ THING_NAME = "inst001-pi0001-p1002"
 CLIENT_ID = "SHADOW_" + THING_NAME
 
 # 인증서 경로
-CERT_PATH = "/home/capstone//Desktop/aws-iot-certs/"
+CERT_PATH = "/home/capstone/Desktop/capstone/py/aws-iot-certs/"
 
-CA = CERT_PATH + "AmazonRootCA1.pem"
+CA   = CERT_PATH + "AmazonRootCA1.pem"
 CERT = CERT_PATH + "36ed8303472d8d26e4ebc6c6538331c5c0e01cf881d16d5c6eb043cda78962de-certificate.pem.crt"
-KEY = CERT_PATH + "36ed8303472d8d26e4ebc6c6538331c5c0e01cf881d16d5c6eb043cda78962de-private.pem.key"
+KEY  = CERT_PATH + "36ed8303472d8d26e4ebc6c6538331c5c0e01cf881d16d5c6eb043cda78962de-private.pem.key"
 
 # MQTT 토픽
 SHADOW_UPDATE = f"$aws/things/{THING_NAME}/shadow/name/{CLIENT_ID}/update"
@@ -57,7 +57,7 @@ def on_message(client, userdata, msg):
 
 # ==== Shadow 상태 업데이트 함수 ====
 def update_shadow(entity_key, value_data):
-    timestamp_str = now_kst.isoformat()  #ex: '2025-04-23T18:09:44+09:00'
+    timestamp_str = datetime.now(kst).isoformat()  #ex: '2025-04-23T18:09:44+09:00'
     payload = {
         "state": {
             "reported": {

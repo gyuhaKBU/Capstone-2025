@@ -26,7 +26,6 @@ SHADOW_DELTA  = f"$aws/things/{THING_NAME}/shadow/name/{CLIENT_ID}/update/delta"
 
 # ==== timestamp setting ====
 kst = pytz.timezone("Asia/Seoul")
-now_kst = datetime.now(kst)
 
 # ==== entityKey 생성 함수 ====
 def to_entity_key(thing_name: str) -> str:
@@ -57,7 +56,7 @@ def on_message(client, userdata, msg):
 
 # ==== Shadow 상태 업데이트 함수 ====
 def update_shadow(entity_key, value_data):
-    timestamp_str = datetime.now(kst).isoformat()  #ex: '2025-04-23T18:09:44+09:00'
+    timestamp_str = datetime.now(kst).strftime("%Y-%m-%dT%H:%M:%S.%f")  #ex: '2025-04-23T18:09:44'
     payload = {
         "state": {
             "reported": {

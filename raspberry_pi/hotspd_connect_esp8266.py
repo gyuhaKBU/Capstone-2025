@@ -2,9 +2,10 @@ import paho.mqtt.client as mqtt
 import json
 
 # 브로커 설정
-MQTT_BROKER = "localhost"     # 라즈베리파이 자체 브로커
+MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
-MQTT_TOPIC = "esp/sensor"     # ESP에서 발행하는 토픽
+MQTT_TOPIC_SUB = "esp/sensor"
+MQTT_TOPIC_PUB = "esp/ack"
 
 # 메시지 수신 시 처리
 def on_message(client, userdata, msg):
@@ -12,6 +13,12 @@ def on_message(client, userdata, msg):
         payload = msg.payload.decode('utf-8')
         data = json.loads(payload)
         print(f"[수신] call: {data['call']}, fall: {data['fall']}, ultraSonic: {data['ultraSonic']}")
+
+        # 수신 확인 응답 발행
+        ack_msg = json.dumps({"status": "received"})
+        client.publish(MQTT_TOPIC_PUB, ack_msg)
+        print(f"[발신] ACK 전송: {ack_msg}")
+
     except Exception as e:
         print("파싱 실패:", e)
 
@@ -19,7 +26,7 @@ def on_message(client, userdata, msg):
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         print("MQTT 연결 성공")
-        client.subscribe(MQTT_TOPIC)
+        client.subscribe(MQTT_TOPIC_SUB)
     else:
         print("MQTT 연결 실패, 코드:", rc)
 

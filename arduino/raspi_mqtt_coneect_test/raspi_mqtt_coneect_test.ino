@@ -59,33 +59,31 @@ void loop() {
 
     if (ackReceived) {
     Serial.print("[응답 수신 완료]");
+
+    int call = random(0, 2);
+    int fall = random(0, 2);
+    int ultraSonic = random(90, 121);
+
+    StaticJsonDocument<128> doc;
+    doc["call"] = call;
+    doc["fall"] = fall;
+    doc["ultraSonic"] = ultraSonic;
+
+    char buffer[128];
+    serializeJson(doc, buffer);
+
+    ackReceived = false;
+    client.publish("esp/sensor", buffer);
+    Serial.println(String("[발행] ") + buffer);
   } else {
     Serial.println("[경고] 응답 없음, 발행 보류");
     delay(10000);
   }
 
-  int call = random(0, 2);
-  int fall = random(0, 2);
-  int ultraSonic = random(90, 121);
-
-  StaticJsonDocument<128> doc;
-  doc["call"] = call;
-  doc["fall"] = fall;
-  doc["ultraSonic"] = ultraSonic;
-
-  char buffer[128];
-  serializeJson(doc, buffer);
-
-  ackReceived = false;
-  client.publish("esp/sensor", buffer);
-  Serial.println(String("[발행] ") + buffer);
-
-  unsigned long start = millis();
-  while (!ackReceived && millis() - start < 5000) {
-    client.loop();
-  }
-
-
+    unsigned long start = millis();
+    while (!ackReceived && millis() - start < 5000) {
+      client.loop();
+    }
 
   delay(5000);
 }

@@ -21,6 +21,9 @@ KEY = "/home/capstone/Desktop/capstone/py/aws-iot-certs/36ed8303472d8d26e4ebc6c6
 SHADOW_UPDATE = f"$aws/things/{THING_NAME}/shadow/name/{CLIENT_ID}/update"
 kst = pytz.timezone("Asia/Seoul")
 
+# retained 메시지를 무시하기 위한 변수
+ignore_retained = True
+
 def to_entity_key(thing_name: str) -> str:
     return thing_name.replace("-", "#")
 
@@ -39,12 +42,19 @@ def update_shadow_to_aws(entity_key, value_data):
     print("[AWS 전송]", payload)
 
 # 로컬 브로커 수신
-
 def on_local_connect(client, userdata, flags, rc):
     print("[로컬] 연결 상태:", rc)
     client.subscribe(LOCAL_TOPIC_SUB, qos=1)
 
 def on_local_message(client, userdata, msg):
+    global ignore_retained
+    # 첫 번째 retained 메시지를 무시
+    if ignore_retained and msg.retain:
+        print("[로컬] 초기 retained 메시지 무시됨")
+        return
+    # retained 메시지 이후부터는 정상 처리
+    ignore_retained = False
+
     try:
         payload = msg.payload.decode('utf-8')
         data = json.loads(payload)
@@ -52,7 +62,7 @@ def on_local_message(client, userdata, msg):
 
         # ACK 발행
         ack_msg = json.dumps({"status": "received"})
-        local_client.publish(LOCAL_TOPIC_PUB, ack_msg)
+        local_client.publish(LOCAL_TOPIC_PUB, ack_msg, qos=1)
         print(f"[발신] ACK 전송: {ack_msg}")
 
         # AWS로 전송

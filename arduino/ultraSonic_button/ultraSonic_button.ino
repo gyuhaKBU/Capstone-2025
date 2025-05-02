@@ -1,96 +1,92 @@
 /* ------------------------------------------------- 전처리기 ------------------------------------------------- */
-
-#define TRIG_PIN D1  // GPIO5
-#define ECHO_PIN D2  // GPIO4
-#define btn D5       // 몰라
-
+#define TRIG_PIN       D1   // GPIO5
+#define ECHO_PIN       D2   // GPIO4
+#define BTN_PIN        D5   // 푸시버튼
 
 /* ------------------------------------------------- 변수 ------------------------------------------------- */
-
-//멀티태스킹 변수 개의 독립적인 작업을 millis() 기반으로 처리
-
-//사이클마다의 변수에 현재시간 갱신
+/*  멀티태스킹킹  */
 unsigned long previous_button_debounce = 0;
-unsigned long previous_ultraSonic = 0;
-unsigned long previous_button = 0;
+unsigned long previous_ultraSonic      = 0;
+unsigned long previous_button          = 0;
 
-//사이클
-const unsigned long cycle_button_debounce = 50;
-const unsigned long cycle_ultraSonic = 1000;
-const unsigned long cycle_button = 2000;
+const unsigned long cycle_button_debounce = 10;    // 디바운싱 샘플 주기 (ms)
+const unsigned long cycle_ultraSonic      = 1000;  // 초음파 센서 주기 (ms)
+const unsigned long cycle_button          = 2000;  // “호출” 출력 주기 (ms)
 
-bool lastBtnState = LOW;
-bool btn_pressed = false; //버튼 누름 여부
+/*  버튼 디바운스  */
+bool lastButtonReading = HIGH;  // 풀업 쓸 때 기본 HIGH
+bool buttonState       = HIGH;
+bool btn_pressed       = false;
+unsigned long lastDebounceTime = 0;
 
-bool reading = LOW;
-
-
-
-/* ------------------------------------------------- 함수선언언 ------------------------------------------------- */
-
-long readUltrasonicDistance(); //초음파센서 읽는 함수 선언
-
+/* ------------------------------------------------- 함수선언 ------------------------------------------------- */
+long readUltrasonicDistance();
 
 /* ------------------------------------------------- 셋업함수 ------------------------------------------------- */
-
 void setup() {
   Serial.begin(115200);
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
-  pinMode(btn, INPUT);
+  pinMode(BTN_PIN, INPUT_PULLUP);   // 내부 풀업 사용
 }
 
-
 /* ------------------------------------------------- 루프함수 ------------------------------------------------- */
-
 void loop() {
-  unsigned long currentMillis = millis(); //루프마다 현재시간 갱신
+  unsigned long currentMillis = millis();
 
-  reading = digitalRead(btn);
+  // 1) 디바운싱 샘플링
+  if (currentMillis - previous_button_debounce >= cycle_button_debounce) {
+    previous_button_debounce = currentMillis;
+    
+    bool reading = digitalRead(BTN_PIN);
+    if (reading != lastButtonReading) {
+      lastDebounceTime = currentMillis;  // 상태 변화가 감지된 시점 기록
+    }
+    lastButtonReading = reading;
 
-  // 버튼을 눌렀다가 뗐을 때 (전이 감지)
-  if (reading == HIGH && lastBtnState == LOW) {
-    Serial.println("호출");
-    delay(300); // 중복 감지 방지
+    // 읽기 상태가 cycle_button_debounce 이상 유지됐으면 “진짜 변화”로 인정
+    if (currentMillis - lastDebounceTime > cycle_button_debounce) {
+      if (reading != buttonState) {
+        buttonState = reading;
+        if (buttonState == LOW) {       // 풀업 쓰면 눌렸을 때 LOW
+          btn_pressed = true;
+        }
+      }
+    }
   }
 
-  lastBtnState = reading;
-  
-  
-
-  if (currentMillis - previous_ultraSonic >= cycle_ultraSonic){ //초음파센서 사이클
+  // 2) 초음파 센서 측정 (1초마다)
+  if (currentMillis - previous_ultraSonic >= cycle_ultraSonic) {
     previous_ultraSonic = currentMillis;
 
-    long distance = readUltrasonicDistance(); //초음파센서 불러오기 및 출력
+    long distance = readUltrasonicDistance();
     Serial.print("거리: ");
-    Serial.print(distance);
-    Serial.println(" cm | ");
+    if (distance < 0) Serial.println("Out of range");
+    else {
+      Serial.print(distance);
+      Serial.println(" cm");
+    }
   }
 
-  if (currentMillis - previous_button >= cycle_button){ //호출여부 사이클
+  // 3) 버튼 호출 처리 (2초마다 한 번)
+  if (currentMillis - previous_button >= cycle_button) {
     previous_button = currentMillis;
-
-    if(btn_pressed){ //현재 사이클 한 번 돌기 전 버튼 한 번 이상 눌렀으면
+    if (btn_pressed) {
       Serial.println("호출");
-      btn_pressed = false; //다시 변수 false로
+      btn_pressed = false;
     }
   }
 }
 
-
 /* ------------------------------------------------- 함수 ------------------------------------------------- */
-
 long readUltrasonicDistance() {
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
-
   digitalWrite(TRIG_PIN, HIGH);
   delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
 
-  long duration = pulseIn(ECHO_PIN, HIGH, 30000); // 30ms 제한 (~5m)
-  if (duration == 0) return -1; // timeout 처리
-  long distanceCm = duration * 0.034 / 2;
-
-  return distanceCm;
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000); // 타임아웃 30ms (~5m)
+  if (duration == 0) return -1;
+  return duration * 0.034 / 2;
 }

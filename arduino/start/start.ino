@@ -1,4 +1,7 @@
 /* ------------------------------------------------- 전처리기 ------------------------------------------------- */
+/*  기기 고유 설정  */
+#define PATIENT_ID   "p1002" 
+
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
@@ -7,7 +10,7 @@
 #define ECHO_PIN D2 // GPIO4 | 초음파 받아
 #define BTN_PIN D5  // GPIO14 | 푸시버튼
 
-/* ------------------------------------------------- 변수 ------------------------------------------------- */
+/* ------------------------------------------------- 전역 변수 ------------------------------------------------- */
 /*  와이파이 연결  */
 const char *ssid = "inst001-pi0001";
 const char *password = "12345678";
@@ -16,7 +19,13 @@ const char *mqtt_server = "192.168.4.1";
 WiFiClient espClient;
 PubSubClient client(espClient);
 
+/*  토픽 문자열 버퍼  */
+char topicSensor[32];
+char topicAck[32];
+
+/*  갈곳잃은 카테고리  */
 bool ackReceived = false;
+static unsigned long ackTimer = 0;
 
 /*  멀티태스킹  */
 unsigned long previous_button_debounce = 0;
@@ -24,9 +33,6 @@ unsigned long previous_readSendSensor = 0;
 
 const unsigned long cycle_button_debounce = 15;   // 디바운싱 샘플 주기 (ms)
 const unsigned long cycle_readSendSensor = 5000; // 센서 읽고 전송 주기 (ms)
-
-// 전역에
-static unsigned long ackTimer = 0;
 
 /*  버튼 디바운스  */
 bool lastButtonReading = HIGH; // 풀업 쓸 때 기본 HIGH
@@ -49,6 +55,13 @@ void setup()
     setup_wifi();
     client.setServer(mqtt_server, 1883);
     client.setCallback(callback);
+
+    // + 토픽 생성
+    snprintf(topicSensor, sizeof(topicSensor), "esp/%s/sensor", PATIENT_ID);
+    snprintf(topicAck,    sizeof(topicAck),    "esp/%s/ack",    PATIENT_ID);
+
+    // + 내 ACK 토픽 구독
+    client.subscribe(topicAck);  // ex: "esp/unit01/ack"
 
     /*   핀 설정  */
     pinMode(TRIG_PIN, OUTPUT);
@@ -128,15 +141,15 @@ void loop()
             char buffer[128];
             serializeJson(doc, buffer);
 
-            bool ok = client.publish("esp/sensor", buffer);
-            if (!ok)
-                Serial.println(F("Publish failed"));
-            else
-            {
+            // + topicSensor로 publish
+            bool ok = client.publish(topicSensor, buffer);
+            if (ok) {
                 ackReceived = false;
-                ackTimer = currentMillis;
+                ackTimer     = currentMillis;
                 Serial.print(F("[발행] "));
                 Serial.println(buffer);
+            } else {
+                Serial.println(F("Publish failed"));
             }
         }
         else
@@ -168,16 +181,13 @@ void setup_wifi()
 }
 void reconnect()
 {
-    while (!client.connected())
-    {
+    while (!client.connected()) {
         Serial.print("MQTT 연결 시도...");
-        if (client.connect("ESP8266Client"))
-        {
-            Serial.println("연결 성공!");
-            client.subscribe("esp/ack");
-        }
-        else
-        {
+        if (client.connect("ESP8266Client")) {
+          Serial.println("연결 성공!");
+          // ↓ hard-coded "esp/ack" 대신 내 ACK 토픽을 구독
+          client.subscribe(topicAck);
+        } else {
             Serial.print("실패, rc=");
             Serial.println(client.state());
             delay(2000);
@@ -187,8 +197,8 @@ void reconnect()
 
 void callback(char *topic, byte *payload, unsigned int length)
 { // 랒파 MQTT 구독? 암튼 잘 수신하는지 확인
-    if (String(topic) == "esp/ack")
-    {
+    // + 내 ACK 토픽과 일치할 때만
+    if (strcmp(topic, topicAck) == 0) {
         ackReceived = true;
     }
 }

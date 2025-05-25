@@ -2,35 +2,206 @@
 <meta charset="utf-8">
 <title>devicedata 조회</title>
 
-<h2>devicedata 조회</h2>
-<label>entityKey <input id="ek" size="30"></label><br>
-<label>시작일 <input id="s" type="date"></label>
-<label>종료일 <input id="e" type="date"></label>
-<button onclick="query()">조회</button>
+<!-- ─────── flatpickr CDN ─────── -->
+<link  rel="stylesheet"
+       href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 
-<pre id="out"></pre>
+<!-- 월·년 전용 플러그인 -->
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/monthSelect/index.js"></script>
+<link  rel="stylesheet"
+       href="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/monthSelect/style.css">
+<!-- ───────────────────────────── -->
+
+<pre id="out_db"></pre>
+
+  <h2>회원가입</h2>
+  <form id="signupForm">
+    <label>사용자명
+      <input type="text" name="username" required>
+    </label>
+    <label>이메일
+      <input type="email" name="email" required>
+    </label>
+    <label>비밀번호
+      <input type="password" name="password" required>
+    </label>
+    <button type="submit">가입하기</button>
+</form>
+<div id="out_signup"></div>
+
+<h2>로그인</h2>
+
+<form class="loginForm">
+  <label>
+    Email:
+    <input id="email" name="email" placeholder="email">
+  </label>
+  <br>
+  <label>
+    Password:
+    <input id="pw" name="pw" type="password" placeholder="password">
+  </label>
+  <br>
+  <label>
+    <button type="submit">로그인</button>
+  </label>
+</form>
+<pre id="out_login"></pre>
+
+<br><br><br>
+<h2>devicedata 조회</h2>
+
+<label>entityKey
+  <input id="ek" size="34" placeholder="inst001#pi0001#p1002">
+</label><br><br>
+
+<label>날짜 형식&nbsp;
+  <select id="mode">
+    <option value="day">연-월-일 (YYYY-MM-DD)</option>
+    <option value="month">연-월 (YYYY-MM)</option>
+    <option value="year">연 (YYYY)</option>
+  </select>
+</label><br><br>
+
+<label>시작&nbsp;<input id="s" placeholder="날짜 선택"></label>
+<label>종료&nbsp;<input id="e" placeholder="날짜 선택"></label>
+<button onclick="query()">조회</button>
 
 <script>
 const ENDPOINT = "https://70mbvdshsl.execute-api.ap-northeast-2.amazonaws.com/prod";
+let fpStart, fpEnd;      // flatpickr 인스턴스
 
+initPickers();           // 최초 'day' 모드로 초기화
+document.getElementById('mode').addEventListener('change', initPickers);
+
+/* ──────────────────────────────────────────────
+   flatpickr 초기화 : 선택한 모드(year/month/day)에 맞춰 재생성
+   ──────────────────────────────────────────── */
+function initPickers(){
+  const mode = document.getElementById('mode').value;
+  const confCommon = { allowInput:true };          // 수동 타이핑 허용
+
+  // 먼저 기존 인스턴스가 있으면 파괴
+  if(fpStart){ fpStart.destroy(); fpEnd.destroy(); }
+
+  if(mode === 'year'){           // YYYY
+    const yrConf = {
+      dateFormat: "Y",
+      altFormat : "Y",
+      plugins   : [new flatpickr.plugins.monthSelect({
+                    shorthand: true, dateFormat:"Y", altFormat:"Y" })]
+    };
+    fpStart = flatpickr("#s", { ...confCommon, ...yrConf });
+    fpEnd   = flatpickr("#e", { ...confCommon, ...yrConf });
+
+  }else if(mode === 'month'){    // YYYY-MM
+    const monConf = {
+      dateFormat: "Y-m",
+      altFormat : "Y-m",
+      plugins   : [new flatpickr.plugins.monthSelect({
+                    shorthand: true, dateFormat:"Y-m", altFormat:"Y-m" })]
+    };
+    fpStart = flatpickr("#s", { ...confCommon, ...monConf });
+    fpEnd   = flatpickr("#e", { ...confCommon, ...monConf });
+
+  }else{                         // YYYY-MM-DD (기본)
+    const dayConf = { dateFormat:"Y-m-d" };
+    fpStart = flatpickr("#s", { ...confCommon, ...dayConf });
+    fpEnd   = flatpickr("#e", { ...confCommon, ...dayConf });
+  }
+}
+
+/* ────────────────────────────────
+   회원가입
+   ──────────────────────────────── */
+document.getElementById('signupForm')
+        .addEventListener('submit', async e => {
+          e.preventDefault();          // 폼 기본 제출 막기
+          await signup();
+        });
+
+async function signup(){
+  const f = document.getElementById('signupForm');
+  const payload = {
+    username : f.username.value.trim(),
+    email    : f.email.value.trim(),
+    password : f.password.value
+  };
+
+  // 간단 검증
+  if(!payload.username || !payload.email || !payload.password){
+    document.getElementById('out_signup').textContent =
+      '모든 값을 입력하세요.';
+    return;
+  }
+
+  try{
+    const res  = await fetch(ENDPOINT + '/signup', {
+      method : 'POST',
+      headers: {'Content-Type':'application/json'},
+      body   : JSON.stringify(payload)
+    });
+    const txt = await res.text();
+    document.getElementById('out_signup').textContent =
+      `HTTP ${res.status}\n` + txt;
+  }catch(err){
+    document.getElementById('out_signup').textContent =
+      'Fetch 오류 → ' + err;
+  }
+}
+
+/* ────────────────────────────────
+   로그인 (ID 수정)
+   ──────────────────────────────── */
+document.querySelector('.loginForm')
+        .addEventListener('submit', async e => {
+          e.preventDefault();
+          await login();
+        });
+
+async function login(){
+  const payload = {
+    email   : document.getElementById('email').value.trim(),
+    password: document.getElementById('pw').value
+  };
+  try{
+    const res  = await fetch(ENDPOINT + '/login', {
+      method : 'POST',
+      headers: {'Content-Type':'application/json'},
+      body   : JSON.stringify(payload)
+    });
+    const txt = await res.text();
+    document.getElementById('out_login').textContent =
+      `HTTP ${res.status}\n` + txt;
+  }catch(err){
+    document.getElementById('out_login').textContent =
+      'Fetch 오류 → ' + err;
+  }
+}
+
+/* ──────────────────────────────────────────────
+   API 호출
+   ──────────────────────────────────────────── */
 async function query(){
   const ek = document.getElementById('ek').value.trim();
-  if(!ek) return alert('entityKey 입력');
 
   const qs = new URLSearchParams({ entityKey: ek });
-  const s = document.getElementById('s').value;
-  const e = document.getElementById('e').value;
+  const s  = document.getElementById('s').value;
+  const e  = document.getElementById('e').value;
   if(s) qs.append('start', s);
   if(e) qs.append('end',   e);
 
   const url = `${ENDPOINT}/devicedata?${qs.toString()}`;
   try{
-    const res = await fetch(url);
+    const res  = await fetch(url);
     const data = await res.json();
-    document.getElementById('out').textContent =
-       JSON.stringify(data, null, 2);
+    document.getElementById('out_db').textContent =
+      JSON.stringify(data, null, 2);
   }catch(err){
-    document.getElementById('out').textContent = err;
+    document.getElementById('out_db').textContent =
+      'Fetch 오류 → ' + err;
   }
 }
+
 </script>

@@ -1,64 +1,163 @@
-# lambda_function.py  —  핸들러: lambda_function.lambda_handler
 import json, os, boto3
 from decimal import Decimal
 from boto3.dynamodb.conditions import Key, Attr
+from botocore.exceptions import ClientError
 
-TABLE_NAME   = os.getenv("TABLE", "devicedata")         # 환경 변수로 넣어도 됨
-REGION       = os.getenv("AWS_REGION", "ap-northeast-2")
+# ────────────────────────────
+# 공통 설정
+# ────────────────────────────
+dynamodb      = boto3.resource('dynamodb')
+table_data    = dynamodb.Table('devicedata')   # ← 기존 테이블
+table_user    = dynamodb.Table('User')         # ← 로그인 테이블
 
-dynamodb     = boto3.resource("dynamodb", region_name=REGION)
-table        = dynamodb.Table(TABLE_NAME)
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",  # 개발단계 * , 운영 시 도메인 지정
+    "Access-Control-Allow-Headers":
+        "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Content-Type": "application/json"
+}
 
+SIGNUP_PATH      = "/signup"
+LOGIN_PATH      = "/login"
+DEVICEDATA_PATH = "/devicedata"
+
+# ────────────────────────────
+# 헬퍼
+# ────────────────────────────
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, Decimal):
+            return int(o) if o % 1 == 0 else float(o)
+        return super().default(o)
+
+def resp(code, body):
+    return {
+        "statusCode": code,
+        "headers": CORS_HEADERS,
+        "body": json.dumps(body, cls=DecimalEncoder),
+    }
+    
+def build_response(status_code: int, body: dict | str):
+    return {
+        "statusCode": status_code,
+        "headers": CORS_HEADERS,
+        "body": json.dumps(body) if not isinstance(body, str) else body,
+    }
+    
+# ────────────────────────────
+# Lambda 엔트리
+# ────────────────────────────
 def lambda_handler(event, context):
+    # OPTIONS ─── pre-flight 처리
+    if event.get("httpMethod") == "OPTIONS":
+        return resp(200, {"message": "CORS pre-flight OK"})
+
     try:
-        meth = event.get("httpMethod")
-        path = event.get("resource")   # ★ HTTP API면 event["rawPath"] 사용
+        method = event.get("httpMethod", "")
+        path   = event.get("path", "")
 
-        if meth == "GET" and path == "/devicedata":
-            params = event.get("queryStringParameters") or {}
-            entity = params.get("entityKey")
-            if not entity:
-                return _resp(400, {"msg": "entityKey query string 필수"})
+        # ────── 로그인  ──────
+        if method == "POST" and path == LOGIN_PATH:
+            return handle_login(event)
 
-            # 날짜 범위 (YYYY-MM-DD) → ISO(YYYY-MM-DDThh:mm)
-            start = (params.get("start") or "1900-01-01") + "T00:00"
-            end   = (params.get("end")   or "9999-12-31") + "T23:59"
+        # ────── 회원가입 ──────
+        if method == "POST" and path == SIGNUP_PATH:
+            return handle_signup(event)
+        
+        # ────── devicedata 검색 ──────
+        if method == "GET" and path == DEVICEDATA_PATH:
+            return handle_devicedata(event)
+        
 
-            items = _query(entity, start, end)
-            return _resp(200, {"count": len(items), "items": items})
-
-        return _resp(404, {"msg": "Not Found"})
+        # 정의되지 않은 조합
+        return resp(404, {"message": "Not Found"})
 
     except Exception as e:
         print("ERROR:", e)
-        return _resp(500, {"error": str(e)})
+        return resp(500, {"message": f"Internal Error: {e}"})
 
-# ---------- 내부 함수 ----------
-def _query(entity_key, start_iso, end_iso):
-    """PK = entityKey, SK(timestamp) 범위 검색"""
-    resp = table.query(
-        KeyConditionExpression = Key("entityKey").eq(entity_key) &
-                                 Key("timestamp").between(start_iso, end_iso)
-    )
-    return _dec_to_num(resp.get("Items", []))
+# ────────────────────────────
+# /signup
+# ────────────────────────────
+def handle_signup(event):
+    body = json.loads(event.get("body") or "{}")
+    username = body.get("username")
+    email    = body.get("email")
+    password = body.get("password")
+    role     = body.get("role", "staff")
 
-def _dec_to_num(obj):
-    """DynamoDB Decimal → int/float 변환"""
-    if isinstance(obj, list):
-        return [_dec_to_num(i) for i in obj]
-    if isinstance(obj, dict):
-        return {k: _dec_to_num(v) for k, v in obj.items()}
-    if isinstance(obj, Decimal):
-        return int(obj) if obj % 1 == 0 else float(obj)
-    return obj
+    if not username or not email or not password:
+        return resp(400, {"message":"username, email, password는 필수입니다."})
 
-def _resp(code, body):
-    return {
-        "statusCode": code,
-        "headers": {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "http://127.0.0.1:5500",  # 필요 시 도메인 변경
-            "Access-Control-Allow-Methods": "GET,OPTIONS"
-        },
-        "body": json.dumps(body, ensure_ascii=False)
-    }
+    # 중복 이메일 검사
+    if "Item" in table_user.get_item(Key={"email": email}):
+        return resp(409, {"message":"이미 등록된 이메일입니다."})
+
+    # 신규 사용자 저장 (프로덕션 → 비밀번호 해시!)
+    table_user.put_item(Item={
+        "email": email,
+        "username": username,
+        "password": password,
+        "role": role
+    })
+    return resp(201, {"message":"회원가입 완료"})
+
+# ────────────────────────────
+# /login
+# ────────────────────────────
+def handle_login(event):
+    # body 파싱
+    body = json.loads(event.get("body") or "{}")
+    email    = body.get("email")
+    password = body.get("password")
+
+    if not email or not password:
+        return resp(400, {"message": "이메일과 비밀번호는 필수입니다."})
+
+    # 사용자 조회
+    try:
+        result = table_user.get_item(Key={"email": email})
+        user   = result.get("Item")
+    except ClientError as ce:
+        print("Dynamo error:", ce)
+        return resp(500, {"message": "DB 조회 실패"})
+
+    if not user:
+        return resp(401, {"message": "존재하지 않는 사용자입니다."})
+
+    # ***프로덕션에서는 해시 비교*** (여긴 평문 비교 예시)
+    if user.get("password") != password:
+        return resp(401, {"message": "비밀번호가 틀렸습니다."})
+
+    return resp(200, {
+        "message"      : "로그인 성공",
+        "role"         : user.get("role", "staff"),
+        "hospitalId"   : user.get("hospitalId", "H001"),
+        "hospitalName" : user.get("hospitalName", "서울대병원")
+    })
+
+# ────────────────────────────
+# /devicedata
+# ────────────────────────────
+def handle_devicedata(event):
+    qs = event.get("queryStringParameters") or {}
+    ek = qs.get("entityKey")
+    if not ek:
+        return resp(400, {"message": "entityKey 파라미터가 필요합니다."})
+
+    start = qs.get("start", "1900-01-01T00:00")
+    end   = qs.get("end"  , "9999-12-31T23:59")
+
+    try:
+        resp_items = table_data.query(
+            KeyConditionExpression=Key("entityKey").eq(ek) &
+                                   Key("timestamp").between(start, end),
+            ScanIndexForward=False  # 최신순
+        )
+        items = resp_items.get("Items", [])
+        return resp(200, {"count": len(items), "items": items})
+
+    except ClientError as ce:
+        print("Query error:", ce)
+        return resp(500, {"message": "데이터 조회 실패"})

@@ -1,6 +1,7 @@
 /* ------------------------------------------------- 전처리기 ------------------------------------------------- */
 // 보드 고유 ID
 #define PATIENT_ID   "p1001"
+#define RASPI_ID     "pi0001"
 
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
@@ -11,11 +12,11 @@
 #define BTN_PIN  D5   // GPIO14 | 푸시버튼
 
 /* ------------------------------------------------- 상수 ------------------------------------------------- */
-const char* GATEWAY_STATUS_TOPIC = "gateway/inst001-pi0001/status";  // 라즈베리파이 상태 토픽
+const char* GATEWAY_STATUS_TOPIC = "gateway/" RASPI_ID "/status";  // 라즈베리파이 상태 토픽
 
 /* ------------------------------------------------- 전역 변수 ------------------------------------------------- */
 // WiFi 설정
-const char* ssid        = "inst001-pi0001";
+const char* ssid        = RASPI_ID;
 const char* password    = "12345678";
 const char* mqtt_server = "192.168.4.1";
 

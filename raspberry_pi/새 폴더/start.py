@@ -9,7 +9,7 @@ import pytz
 # ——————————————————————————————
 # 설정
 # ——————————————————————————————
-THING_NAME      = "inst001-pi0002"
+THING_NAME      = "inst001-pi0001"
 CLIENT_ID       = "SHADOW_" + THING_NAME
 
 # 로컬 브로커 (Arduino ↔ Pi)

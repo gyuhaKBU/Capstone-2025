@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>devicedata 조회</title>
+
+<h2>devicedata 조회</h2>
+<label>entityKey <input id="ek" size="30"></label><br>
+<label>시작일 <input id="s" type="date"></label>
+<label>종료일 <input id="e" type="date"></label>
+<button onclick="query()">조회</button>
+
+<pre id="out"></pre>
+
+<script>
+const ENDPOINT = "https://70mbvdshsl.execute-api.ap-northeast-2.amazonaws.com/prod";
+
+async function query(){
+  const ek = document.getElementById('ek').value.trim();
+  if(!ek) return alert('entityKey 입력');
+
+  const qs = new URLSearchParams({ entityKey: ek });
+  const s = document.getElementById('s').value;
+  const e = document.getElementById('e').value;
+  if(s) qs.append('start', s);
+  if(e) qs.append('end',   e);
+
+  const url = `${ENDPOINT}/devicedata?${qs.toString()}`;
+  try{
+    const res = await fetch(url);
+    const data = await res.json();
+    document.getElementById('out').textContent =
+       JSON.stringify(data, null, 2);
+  }catch(err){
+    document.getElementById('out').textContent = err;
+  }
+}
+</script>

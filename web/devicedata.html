@@ -13,8 +13,6 @@
        href="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/monthSelect/style.css">
 <!-- ───────────────────────────── -->
 
-<pre id="out_db"></pre>
-
   <h2>회원가입</h2>
   <form id="signupForm">
     <label>사용자명
@@ -67,6 +65,8 @@
 <label>시작&nbsp;<input id="s" placeholder="날짜 선택"></label>
 <label>종료&nbsp;<input id="e" placeholder="날짜 선택"></label>
 <button onclick="query()">조회</button>
+
+<pre id="out_db"></pre>
 
 <script>
 const ENDPOINT = "https://70mbvdshsl.execute-api.ap-northeast-2.amazonaws.com/prod";
@@ -181,7 +181,7 @@ async function login(){
 }
 
 /* ──────────────────────────────────────────────
-   API 호출
+   db 조회
    ──────────────────────────────────────────── */
 async function query(){
   const ek = document.getElementById('ek').value.trim();

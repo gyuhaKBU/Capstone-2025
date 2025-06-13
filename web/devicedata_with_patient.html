@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>환자 & 최신 상태 조회</title>
+
+<h3>institutionId 로 조회</h3>
+<input id="inst" placeholder="inst001" size="12">
+<button onclick="fetchInfo()">조회</button>
+
+<pre id="out" style="background:#f5f5f5;padding:1rem;"></pre>
+
+<script>
+const ENDPOINT = "https://p124w5x9b5.execute-api.ap-northeast-2.amazonaws.com/info";
+
+async function fetchInfo(){
+  const id = document.getElementById('inst').value.trim();
+  if(!id){ alert("institutionId 를 입력하세요"); return; }
+  const url = `${ENDPOINT}?institutionId=${encodeURIComponent(id)}`;
+  try{
+    const res  = await fetch(url);
+    const data = await res.json();
+    document.getElementById('out').textContent =
+      JSON.stringify(data, null, 2);
+  }catch(err){
+    document.getElementById('out').textContent = 'Error: ' + err;
+  }
+}
+</script>

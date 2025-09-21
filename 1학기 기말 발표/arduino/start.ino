@@ -1,8 +1,8 @@
 /* ------------------------------------------------- 전처리기 ------------------------------------------------- */
 // 보드 고유 ID
-#define instructionId "inst001" // 요양기관 ID
-#define roomNo "101" // 방 번호
-#define patientId "p002" // 환자 ID
+#define INST_ID "inst001" // 요양기관 ID
+#define RASPI_ID "pi0001" // 방 번호
+#define PATIENT_ID "p1002" // 환자 ID
 
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
@@ -14,21 +14,11 @@
 #define BTN_PIN D5   // 푸시버튼
 
 /* ------------------------------------------------- 상수 ------------------------------------------------- */
-const char* GATEWAY_STATUS_TOPIC = "gateway/" instructionId "-" roomNo "/status";  // 라즈베리파이 상태 토픽
-
-/* ------------------------------------------------- 전역 함수 선언 ------------------------------------------------- */
-
-void setup_wifi();
-void reconnect();
-void callback(char* topic, byte* payload, unsigned int length);
-void IRAM_ATTR onButtonPressed();  //버튼 인터럽트
-long readUltrasonicDistance();
+const char* GATEWAY_STATUS_TOPIC = "gateway/" INST_ID "-" RASPI_ID "/status";  // 라즈베리파이 상태 토픽
 
 /* ------------------------------------------------- 전역 변수 ------------------------------------------------- */
-
-
 // WiFi 설정
-const char* ssid = instructionId "-" roomNo;
+const char* ssid = INST_ID "-" RASPI_ID;
 const char* password = "12345678";
 const char* mqtt_server = "192.168.4.1";
 
@@ -69,6 +59,13 @@ const int ultraSonic_TH = 30; // 판단 값
 const int ultraSonic_HIGH_TH = ultraSonic_TH + 5;
 const int ultraSonic_LOW_TH = ultraSonic_TH -5;
 
+/* ------------------------------------------------- 함수 선언 ------------------------------------------------- */
+void setup_wifi();
+void reconnect();
+void callback(char* topic, byte* payload, unsigned int length);
+void IRAM_ATTR onButtonPressed();  //버튼 인터럽트
+long readUltrasonicDistance();
+
 /* ------------------------------------------------- 셋업 함수 ------------------------------------------------- */
 void setup() {
   Serial.begin(115200);
@@ -83,8 +80,8 @@ void setup() {
   client.setCallback(callback);
 
   // 토픽 생성
-  snprintf(topicSensor, sizeof(topicSensor), "esp/%s/sensor", patientId);
-  snprintf(topicAck, sizeof(topicAck), "esp/%s/ack", patientId);
+  snprintf(topicSensor, sizeof(topicSensor), "esp/%s/sensor", PATIENT_ID);
+  snprintf(topicAck, sizeof(topicAck), "esp/%s/ack", PATIENT_ID);
 
   // ACK 토픽 구독
   client.subscribe(topicAck, 1);

@@ -8,7 +8,7 @@
  */
 #define room_id "301A" // 방 id
 #define bed_id "A" // 침대 id
-#define sensor_id "ESP32-2" // 센서 id
+#define sensor_id "ESP32-1" // 센서 id
 
 
 // [핀 매크로]
@@ -147,7 +147,7 @@ void loop() {
       previous_readSensor = currentMillis;
 
       // 센서값 읽기
-      long ultrasonic_cm = readUltrasonicDistance();
+      long ultrasonic = readUltrasonicDistance();
       int call_button = btn_pressed
           ? 1
           : 0;
@@ -155,10 +155,10 @@ void loop() {
       // 임계/크로싱 계산
       bool ultrasonic_nowAbove = ultrasonic_upOrDown;
       bool ultrasonic_crossed = false;
-      if (ultrasonic_cm >= 0) {
-          ultrasonic_nowAbove = (ultrasonic_cm >= ultrasonic_HIGH_TH)
+      if (ultrasonic >= 0) {
+          ultrasonic_nowAbove = (ultrasonic >= ultrasonic_HIGH_TH)
               ? true
-              : (ultrasonic_cm <= ultrasonic_LOW_TH)
+              : (ultrasonic <= ultrasonic_LOW_TH)
                   ? false
                   : ultrasonic_upOrDown;
           ultrasonic_crossed = (ultrasonic_nowAbove != ultrasonic_upOrDown);
@@ -167,8 +167,10 @@ void loop() {
       // 라이다 프레임 소거 및 최신값 유지
       uint16_t d, s; float tc;
       if (readTFLuna(d, s, tc)) {
-        lastLidarCm = d;
-        lidarSeen = true;
+        if (d > 0){
+          lastLidarCm = d;
+          lidarSeen = true;
+        }
       }
 
       uint16_t lidar_cm = lidarSeen ? lastLidarCm : 0;
@@ -186,8 +188,8 @@ void loop() {
           
           StaticJsonDocument < 192 > doc;
           doc["call_button"] = (call_button != 0);
-          doc["ultrasonic_cm"] = ultrasonic_cm;
-          doc["lidar_cm"] = lidar_cm;
+          doc["ultrasonic"] = ultrasonic;
+          if (lidarSeen) doc["lidar"] = lastLidarCm;   // 유효할 때만 포함
           char buffer[192];
           serializeJson(doc, buffer);
 

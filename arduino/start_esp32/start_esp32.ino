@@ -8,7 +8,7 @@
  */
 #define room_id "301A" // 방 id
 #define bed_id "A" // 침대 id
-#define sensor_id "ESP32-1" // 센서 id
+#define sensor_id "ESP32-4" // 센서 id
 
 
 // [핀 매크로]
@@ -65,8 +65,8 @@ unsigned long previous_ledOn = 0;
 unsigned long previous_sendSensor = 0;
 unsigned long previous_readSensor = 0;
 // 멀티태스킹 주기
-const unsigned long cycle_ledOn = 1000; // LED 켜지는 시간 (ms)
-const unsigned long cycle_readSensor = 1000; // 센서 읽기 주기 (ms)
+const unsigned long cycle_ledOn = 500; // LED 켜지는 시간 (ms)
+const unsigned long cycle_readSensor = 2000; // 센서 읽기 주기 (ms)
 const unsigned long cycle_sendSensor = 3000; // 센서 읽고 전송 주기 (ms)
 
 // 버튼 인터럽트

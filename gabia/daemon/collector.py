@@ -26,8 +26,8 @@ cur  = conn.cursor()
 
 SQL = (
     "INSERT INTO sensor_data "
-    "(nursinghome_id, room_id, bed_id, sensor_id, call_button, fall_event, ultrasonic) "
-    "VALUES (%s,%s,%s,%s,%s,%s,%s)"
+    "(nursinghome_id, room_id, bed_id, sensor_id, call_button, fall_event) "
+    "VALUES (%s,%s,%s,%s,%s,%s)"
 )
 
 def _as_int(v, default=None):
@@ -49,7 +49,6 @@ def parse(topic: str, payload: bytes):
     sensor_id  = str(d.get("sensor_id", "")).strip()
     call_btn   = 1 if _as_int(d.get("call_button", 0), 0) else 0
     fall_event = 1 if _as_int(d.get("fall_event", 0), 0) else 0
-    ultrasonic = _as_int(d.get("ultrasonic"), None)
 
     return (
         nh_id,
@@ -58,7 +57,6 @@ def parse(topic: str, payload: bytes):
         sensor_id,
         call_btn,
         fall_event,
-        ultrasonic,
     )
 
 def on_connect(client, userdata, flags, rc, properties=None):

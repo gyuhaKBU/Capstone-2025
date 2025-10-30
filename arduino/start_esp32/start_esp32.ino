@@ -65,9 +65,9 @@ unsigned long previous_ledOn = 0;
 unsigned long previous_sendSensor = 0;
 unsigned long previous_readSensor = 0;
 // 멀티태스킹 주기
-const unsigned long cycle_ledOn = 500; // LED 켜지는 시간 (ms)
-const unsigned long cycle_readSensor = 2000; // 센서 읽기 주기 (ms)
-const unsigned long cycle_sendSensor = 3000; // 센서 읽고 전송 주기 (ms)
+const unsigned long cycle_ledOn = 200; // LED 켜지는 시간 (ms)
+const unsigned long cycle_readSensor = 500; // 센서 읽기 주기 (ms)
+const unsigned long cycle_sendSensor = 500; // 센서 읽고 전송 주기 (ms)
 
 // 버튼 인터럽트
 volatile bool btn_pressed = false;

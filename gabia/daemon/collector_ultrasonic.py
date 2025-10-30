@@ -1,4 +1,4 @@
-# /srv/iot/collector.py
+# /srv/iot/collector_ultrasonic.py
 import os, ssl, json, logging
 import mysql.connector as mc
 from paho.mqtt import client as mqtt
@@ -8,7 +8,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 # MQTT
 MQTT_HOST = os.getenv("MQTT_HOST", "127.0.0.1")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
-MQTT_TOPIC = os.getenv("MQTT_TOPIC", "pi/+/+/data")   # 랒파→서버 토픽
+MQTT_TOPIC = os.getenv("MQTT_TOPIC", "pi/+/+/data")  # 랒파→서버 토픽
 
 # MySQL
 DB_CFG = dict(
@@ -21,9 +21,12 @@ DB_CFG = dict(
 )
 
 SQL_UPSERT = """
-INSERT INTO ultrasonic (bed_id, sensor_id, ultrasonic)
-VALUES ("A", %s, %s)
-ON DUPLICATE KEY UPDATE ultrasonic = VALUES(ultrasonic)
+INSERT INTO ultrasonic (sensor_id, bed_id, ultrasonic, lidar)
+VALUES (%s, %s, %s, %s)
+ON DUPLICATE KEY UPDATE
+  bed_id = VALUES(bed_id),
+  ultrasonic = VALUES(ultrasonic),
+  lidar = VALUES(lidar)
 """
 
 conn = cur = None
@@ -47,14 +50,31 @@ def ensure_conn():
 
 def parse_payload(payload: bytes):
     d = json.loads(payload.decode("utf-8"))
+
     sensor_id = str(d.get("sensor_id", "")).strip()
-    if not sensor_id or len(sensor_id) > 8:
+    if not sensor_id or len(sensor_id) > 32:
         raise ValueError(f"BAD sensor_id: {sensor_id!r}")
+
+    bed_id = str(d.get("bed_id", "")).strip()
+    if not bed_id or len(bed_id) > 32:
+        raise ValueError(f"BAD bed_id: {bed_id!r}")
+
     try:
         ultrasonic = int(d.get("ultrasonic"))
     except Exception:
         raise ValueError(f"BAD ultrasonic: {d.get('ultrasonic')!r}")
-    return sensor_id, ultrasonic
+
+    # lidar는 옵션
+    lidar_val = d.get("lidar", None)
+    lidar = None
+    if lidar_val is not None and str(lidar_val) != "":
+        try:
+            lidar = int(lidar_val)
+        except Exception:
+            logging.warning(f"IGNORE bad lidar value: {lidar_val!r}")
+            lidar = None
+
+    return sensor_id, bed_id, ultrasonic, lidar
 
 def on_connect(client, userdata, flags, rc, properties=None):
     logging.info(f"MQTT CONNECT rc={rc}")
@@ -62,10 +82,12 @@ def on_connect(client, userdata, flags, rc, properties=None):
 
 def on_message(client, userdata, msg):
     try:
-        sensor_id, ultrasonic = parse_payload(msg.payload)
+        sensor_id, bed_id, ultrasonic, lidar = parse_payload(msg.payload)
         ensure_conn()
-        cur.execute(SQL_UPSERT, (sensor_id, ultrasonic))
-        logging.info(f"UPSERT_OK topic={msg.topic} sensor_id={sensor_id} ultrasonic={ultrasonic}")
+        cur.execute(SQL_UPSERT, (sensor_id, bed_id, ultrasonic, lidar))
+        logging.info(
+            f"UPSERT_OK topic={msg.topic} sensor_id={sensor_id} bed_id={bed_id} ultrasonic={ultrasonic} lidar={lidar}"
+        )
     except Exception as e:
         logging.exception(f"UPSERT_ERR topic={msg.topic}: {e}")
 

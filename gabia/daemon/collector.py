@@ -1,17 +1,17 @@
 # /srv/iot/collector.py
-import json, os, ssl, logging
+import json, os, ssl, logging, math
 import mysql.connector as mc
 from paho.mqtt import client as mqtt
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
-# 브로커/토픽
+# MQTT
 MQTT_HOST = os.getenv("MQTT_HOST", "127.0.0.1")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
-# 변경: pi/<NH_ID>/<ROOM_ID>/data
+# 형식: pi/<NH_ID>/<ROOM_ID>/data
 TOPIC     = os.getenv("MQTT_TOPIC", "pi/+/+/data")
 
-# DB
+# MySQL
 DB_CFG = dict(
     host=os.getenv("DB_HOST", "127.0.0.1"),
     port=int(os.getenv("DB_PORT", "3306")),
@@ -20,44 +20,64 @@ DB_CFG = dict(
     database=os.getenv("DB_NAME", "kbuproject_db"),
     autocommit=True,
 )
-
 conn = mc.connect(**DB_CFG)
 cur  = conn.cursor()
 
 SQL = (
-    "INSERT INTO sensor_data "
-    "(nursinghome_id, room_id, bed_id, sensor_id, call_button, fall_event) "
-    "VALUES (%s,%s,%s,%s,%s,%s)"
+    "INSERT INTO ultrasonic_u4 "
+    "(nursinghome_id, room_id, bed_id, call_button, fall_event, u1, u2, u3, u4, lidar) "
+    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
 )
 
 def _as_int(v, default=None):
     try:
-        return int(v)
+        if v is None: return default
+        # "12.7" 같은 값도 반올림
+        return int(round(float(v)))
     except Exception:
         return default
+
+def _first_int(d, *keys, default=None):
+    for k in keys:
+        if k in d:
+            return _as_int(d.get(k), default)
+    return default
 
 def parse(topic: str, payload: bytes):
     # topic: pi/<NH_ID>/<ROOM_ID>/data
     parts = topic.split("/")
     if len(parts) < 4 or parts[0] != "pi" or parts[3] != "data":
         raise ValueError(f"TOPIC_FMT_ERR: {topic}")
-
     nh_id, room_id = parts[1].strip(), parts[2].strip()
 
     d = json.loads(payload.decode("utf-8"))
+
     bed_id     = str(d.get("bed_id", "")).strip()
-    sensor_id  = str(d.get("sensor_id", "")).strip()
     call_btn   = 1 if _as_int(d.get("call_button", 0), 0) else 0
     fall_event = 1 if _as_int(d.get("fall_event", 0), 0) else 0
 
-    return (
-        nh_id,
-        room_id,
-        bed_id,
-        sensor_id,
-        call_btn,
-        fall_event,
-    )
+    # 거리값 수집 우선순위:
+    # 1) 명시적 u1~u4
+    # 2) 배열 u = [..]
+    # 3) 단일 ultrasonic -> u1로 저장
+    u1 = _first_int(d, "u1")
+    u2 = _first_int(d, "u2")
+    u3 = _first_int(d, "u3")
+    u4 = _first_int(d, "u4")
+
+    if any(v is not None for v in (u1,u2,u3,u4)) is False and isinstance(d.get("u"), list):
+        arr = d["u"]
+        u1 = _as_int(arr[0]) if len(arr) > 0 else None
+        u2 = _as_int(arr[1]) if len(arr) > 1 else None
+        u3 = _as_int(arr[2]) if len(arr) > 2 else None
+        u4 = _as_int(arr[3]) if len(arr) > 3 else None
+
+    if all(v is None for v in (u1,u2,u3,u4)) and "ultrasonic" in d:
+        u1 = _as_int(d.get("ultrasonic"))
+
+    lidar = _first_int(d, "lidar", "tfmini", "tfluna")
+
+    return (nh_id, room_id, bed_id, call_btn, fall_event, u1, u2, u3, u4, lidar)
 
 def on_connect(client, userdata, flags, rc, properties=None):
     logging.info(f"CONNECTED rc={rc}")
@@ -69,7 +89,7 @@ def on_message(client, userdata, msg):
         cur.execute(SQL, vals)
         logging.info(f"INSERT_OK id={cur.lastrowid} topic={msg.topic} vals={vals}")
     except Exception:
-        logging.exception(f"INSERT_ERR topic={msg.topic}")
+        logging.exception(f"INSERT_ERR topic={msg.topic} payload={msg.payload!r}")
 
 def main():
     client = mqtt.Client(protocol=mqtt.MQTTv311,

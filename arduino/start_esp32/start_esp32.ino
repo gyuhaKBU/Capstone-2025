@@ -2,14 +2,12 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>           // 추가
 
-
 /*  ------------------------------------------------- 전처리기 ---------------------
  * ---------------------------- 
  */
 #define room_id "301A" // 방 id
 #define bed_id "A" // 침대 id
-#define sensor_id "ESP32-4" // 센서 id
-
+#define sensor_id "ESP32-1" // 센서 id
 
 // [핀 매크로]
 // {HC-SR04 초음파 센서}
@@ -41,6 +39,14 @@ void IRAM_ATTR onButtonPressed(); //버튼 인터럽트
 long readUltrasonicDistance(); // 초음파 센서
 bool readTFLuna(uint16_t &distance_cm, uint16_t &strength, float &temp_c); // TF-Luna 프레임 파싱
 
+// 주기 설정
+void set_period_ms(uint16_t ms);
+
+// 윈도우 필터
+static inline int iabs(int x){ return x < 0 ? -x : x; } //
+int median_win(); 
+int readUltrasonicFiltered(); 
+
 /* ------------------- 전역 객체 선언 ------------------- */
 HardwareSerial LidarSerial(2); // TF-Luna UART2
 
@@ -56,18 +62,21 @@ PubSubClient client(espClient);
 // 토픽 버퍼
 char topicSensor[64];
 char topicAck[64];
+char topicCfg[64];  // 설정 토픽 esp/{bed}/{sensor}/cfg
 bool gatewayAlive = false;
 unsigned long lastGatewaySeen=0;
-const unsigned long GATEWAY_TIMEOUT=7000; // 7s
+const unsigned long GATEWAY_TIMEOUT=3000; // 7s
 
 // 멀티태스킹 
 unsigned long previous_ledOn = 0;
 unsigned long previous_sendSensor = 0;
 unsigned long previous_readSensor = 0;
 // 멀티태스킹 주기
-const unsigned long cycle_ledOn = 200; // LED 켜지는 시간 (ms)
-const unsigned long cycle_readSensor = 500; // 센서 읽기 주기 (ms)
-const unsigned long cycle_sendSensor = 500; // 센서 읽고 전송 주기 (ms)
+const unsigned long cycle_ledOn = 50; // LED 켜지는 시간 (ms)
+const unsigned long cycle_readSensor = 200; // 센서 읽기 주기 (ms)
+// 기존: const unsigned long cycle_sendSensor = 200;
+volatile uint16_t PERIOD_MS = 200;              // 기본 발행 주기(ms)
+volatile unsigned long cycle_sendSensor = 200;  // = PERIOD_MS
 
 // 버튼 인터럽트
 volatile bool btn_pressed = false;
@@ -91,6 +100,15 @@ static const float SOUND_CM_PER_US = 0.0343f;     // 왕복 전파속도 환산�
 volatile uint16_t lastLidarCm = 0;
 volatile bool lidarSeen = false;
 
+// 필터 설정 (윈도우 사이즈)
+const int WIN = 5;              // 3 또는 5
+const int MIN_CM = 2;           // 유효 하한
+const int MAX_CM = 55;         // 유효 상한
+const int MAX_JUMP = 55;        // 한 번에 허용 점프(cm)
+int  ringbuf[5];                // 최대 5까지 지원
+int  rcount = 0, rpos = 0;
+int  smooth_cm = -1;
+
 
 /* ------------------- 셋업 함수 ------------------- */
 void setup() {
@@ -106,6 +124,7 @@ void setup() {
   // 토픽 생성
   snprintf(topicSensor, sizeof(topicSensor), "esp/%s/%s/data", bed_id, sensor_id);
   snprintf(topicAck, sizeof(topicAck), "esp/%s/%s/ack", bed_id, sensor_id);
+  snprintf(topicCfg, sizeof(topicCfg), "esp/%s/%s/cfg", bed_id, sensor_id);
 
   // 네트워크 정보 출력
   Serial.print("연결된 WiFi SSID: ");
@@ -127,6 +146,9 @@ void setup() {
 
   // TF-Luna 시리얼 시작
   LidarSerial.begin(115200, SERIAL_8N1, LIDAR_RX_PIN, LIDAR_TX_PIN);
+
+  // 초기 주기 설정
+  set_period_ms(PERIOD_MS);
 }
 
 void loop() {
@@ -143,11 +165,11 @@ void loop() {
       digitalWrite(LED_PIN, LOW);
   }
 
-  if (currentMillis - previous_readSensor >= cycle_readSensor) {
+  if (gatewayAlive && (currentMillis - previous_readSensor >= cycle_readSensor)) {
       previous_readSensor = currentMillis;
 
       // 센서값 읽기
-      long ultrasonic = readUltrasonicDistance();
+      long ultrasonic = readUltrasonicFiltered();
       int call_button = btn_pressed
           ? 1
           : 0;
@@ -255,6 +277,20 @@ void callback(char* topic, byte* payload, unsigned int length) {
     gatewayAlive=true;          // 연결 상태 유지
     Serial.println(F("[콜백] ACK 수신"));
   }
+  if (strcmp(topic, topicCfg) == 0) {
+    StaticJsonDocument<64> doc;
+    DeserializationError err = deserializeJson(doc, payload, length); // length 사용
+    if (!err && doc.containsKey("period_ms")) {
+      set_period_ms(doc["period_ms"].as<uint16_t>());
+    } else {
+      // 숫자 단독 페이로드도 허용 예: "100"
+      char buf[16]; size_t n = min<size_t>(length, sizeof(buf)-1);
+      memcpy(buf, payload, n); buf[n] = 0;
+      int ms = atoi(buf); if (ms > 0) set_period_ms((uint16_t)ms);
+    }
+    return;
+  }
+
 }
 
 void reconnect() {
@@ -265,6 +301,7 @@ void reconnect() {
       Serial.println("connected");
       client.subscribe(topicAck, 1);                 // 이동
       client.subscribe(GATEWAY_STATUS_TOPIC, 1);     // 이동
+      client.subscribe(topicCfg, 1);                 // 추가
     } else {
       Serial.print("failed, rc="); Serial.print(client.state());
       Serial.println(" try again in 5 seconds");
@@ -330,4 +367,55 @@ bool readTFLuna(uint16_t &distance_cm, uint16_t &strength, float &temp_c) {
     }
   }
   return false;
+}
+
+void set_period_ms(uint16_t ms) {
+  ms = constrain(ms, 60, 2000);                 // HC-SR04 안전 최소 ≈60ms
+  PERIOD_MS = ms;
+  cycle_sendSensor = ms;
+  // 필요 시 센서 읽기 주기도 동일화:
+  // cycle_readSensor = ms;
+  Serial.printf("[CFG] period=%u ms (~%.2f Hz)\n", PERIOD_MS, 1000.0 / PERIOD_MS);
+}
+
+void push_cm(int v){
+  ringbuf[rpos] = v;
+  rpos = (rpos + 1) % WIN;
+  if (rcount < WIN) rcount++;
+}
+
+int median_win(){
+  int tmp[5];
+  // 최근 창 전체 내용 정렬(순서는 상관없음)
+  int n = rcount;
+  for(int i=0;i<n;i++) tmp[i] = ringbuf[i];
+  for(int i=0;i<n-1;i++)
+    for(int j=i+1;j<n;j++)
+      if (tmp[i] > tmp[j]) { int t=tmp[i]; tmp[i]=tmp[j]; tmp[j]=t; }
+  return tmp[n/2];
+}
+
+int readUltrasonicFiltered(){
+  int raw = (int)readUltrasonicDistance();   // cm, 타임아웃 시 -1
+
+  // 0) 타임아웃은 그대로 -1 반환. 버퍼/평활값 건드리지 않음.
+  if (raw == -1) return -1;
+
+  // 1) 범위 밖은 이전값 유지
+  if (raw < MIN_CM || raw > MAX_CM) return smooth_cm;
+
+  // 2) 급격 점프 1회 무시(초기엔 허용)
+  if (smooth_cm > 0 && abs(raw - smooth_cm) > MAX_JUMP) return smooth_cm;
+
+  // 3) 창 가운데값
+  push_cm(raw);
+  int med = median_win();
+
+  // 4) 부드럽게 섞기(이전 60% + 새값 40%)
+  if (smooth_cm < 0) smooth_cm = med;
+  else               smooth_cm = (smooth_cm*6 + med*4) / 10;
+
+  return smooth_cm;
+e;
+;
 }

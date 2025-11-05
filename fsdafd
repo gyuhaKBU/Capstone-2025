@@ -1,0 +1,37 @@
+[33mbd596d6[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m HEAD@{0}: reset: moving to origin/main
+[33mbd596d6[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m HEAD@{1}: checkout: moving from main to main
+[33mbd596d6[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m HEAD@{2}: commit: ultrasonic_u4 테이블 추가함. 그에 맞게 서버와 랒파 코드 수정
+[33ma3ba1bd[m HEAD@{3}: commit: 랒파 라벨링 기능 추가
+[33ma087431[m HEAD@{4}: commit: ultrasonic 모니터링용 코드 추가
+[33mbcc82e0[m HEAD@{5}: Branch: renamed refs/heads/main to refs/heads/main
+[33mbcc82e0[m HEAD@{7}: commit: esp8266 -> esp32s
+[33me894cab[m HEAD@{8}: commit: 라즈베리파이 -> 가비아로 MQTT통신을 통해 DB 저장 성공
+[33me2ec572[m HEAD@{9}: commit: institutionId를 api로 보내고 해당 id와 관련된 환자들의 정보와 최신 devicedata 상태를 불러옴.
+[33md219d12[m HEAD@{10}: commit: institutionId를 api로 보내고 해당 id와 관련된 환자들의 정보와 최신 devicedata 상태를 불러옴.
+[33m81cf926[m HEAD@{11}: commit: 특정 조건에서만 AWS로 데이터 보내게
+[33mc214715[m HEAD@{12}: commit: 회원가입, 로그인, db조회 통합 완료 | 테스트, 앱의 기능에 맞게 수정 필요
+[33m75fd3bf[m HEAD@{13}: commit: 간단한 web에서 dynamoDB 검색 성공 | 로그인, 회원가입 기능 통합 필요
+[33mbe8ecf1[m HEAD@{14}: commit: 아두이노에 고유ID를 부여하고 랒파에서 aws로 데이터 전송, 랒파 코드가 실행 중이 아니라면 아두이노의 메세지 발행 중단
+[33m6c1acf4[m HEAD@{15}: reset: moving to HEAD
+[33m6c1acf4[m HEAD@{16}: revert: Revert "아두이노에 환자ID를 설정하고 라즈베리파이에서 환자ID에 따라 다른 entityKey를 AWS로 보내는 기능 추가 | 여러 아두이노, 랒파로 실험 필요"
+[33m76b5bd8[m HEAD@{17}: reset: moving to HEAD
+[33m76b5bd8[m HEAD@{18}: checkout: moving from main to main
+[33m76b5bd8[m HEAD@{19}: commit: 아두이노에 환자ID를 설정하고 라즈베리파이에서 환자ID에 따라 다른 entityKey를 AWS로 보내는 기능 추가 | 여러 아두이노, 랒파로 실험 필요
+[33ma5cf6de[m HEAD@{20}: commit: 랒파코드 실행초기 기본값 전송되는 버그 수정, 아두이노 파일 이름 변경
+[33m3559cb8[m HEAD@{21}: commit: 아두이노 실제 센서데이터 - 랒파 - aws 전달 성공
+[33m20ee738[m HEAD@{22}: commit: 진짜 최종~
+[33m64eca40[m HEAD@{23}: commit: 아두이노에서 버튼, 초음파 수집하는 테스트 코드 추가 | mqtt 코드와 결합해야 함
+[33md4e3083[m HEAD@{24}: commit: 불필요한 파일 삭제
+[33mf02ee2d[m HEAD@{25}: commit: esp 랒파 aws 연결 성공 | 랒파에서 코드 종료하면 센서데이터 하나 손실 나는 문제 해결해야, 실제 센서 연결 필요
+[33mf827450[m[33m ([m[1;32mraspi_hotspd_esp8266[m[33m)[m HEAD@{26}: merge raspi_hotspd_esp8266: Fast-forward
+[33m8052493[m HEAD@{27}: checkout: moving from raspi_hotspd_esp8266 to main
+[33mf827450[m[33m ([m[1;32mraspi_hotspd_esp8266[m[33m)[m HEAD@{28}: commit: esp 랒파 aws 연결 완료
+[33m4010e62[m HEAD@{29}: commit: 아두이노 랒파 aws 연결 성공 | QoS 기능 삽입 예정
+[33m8052493[m HEAD@{30}: checkout: moving from main to raspi_hotspd_esp8266
+[33m8052493[m HEAD@{31}: commit: 랒파로 송신 성공
+[33m797ac08[m HEAD@{32}: commit: 아두이노와 연결 첫번째 시도
+[33m883508a[m HEAD@{33}: commit: 랒파와 연결 첫번째 시도
+[33m49ed05e[m HEAD@{34}: commit: 새 계정의 dynamoDB 저장 성공
+[33m4ab876c[m HEAD@{35}: commit: 새 계정의 dynamoDB에 저장 성공 | 시간 루프마다 갱신 안되는 문제 해결 중
+[33md0b3be0[m HEAD@{36}: Branch: renamed refs/heads/main to refs/heads/main
+[33md0b3be0[m HEAD@{38}: commit (initial): initial commit

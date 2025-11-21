@@ -28,7 +28,7 @@ const char* GATEWAY_STATUS_TOPIC = "gateway/" room_id "/status";
 
 
 
-/* ------------------- 전역함수 선언 ------------------- */
+/* ------------------- 전역 함수 선언 ------------------- */
 // 와이파이
 void setup_wifi();
 void callback(char* topic, byte* payload, unsigned int length);
@@ -40,6 +40,8 @@ long readUltrasonicDistance(); // 초음파 센서
 bool readTFLuna(uint16_t &distance_cm, uint16_t &strength, float &temp_c); // TF-Luna 프레임 파싱
 
 // 주기 설정
+void set_read_ms(uint16_t ms);
+void set_send_ms(uint16_t ms);
 void set_period_ms(uint16_t ms);
 
 // 윈도우 필터
@@ -73,10 +75,8 @@ unsigned long previous_sendSensor = 0;
 unsigned long previous_readSensor = 0;
 // 멀티태스킹 주기
 const unsigned long cycle_ledOn = 50; // LED 켜지는 시간 (ms)
-const unsigned long cycle_readSensor = 200; // 센서 읽기 주기 (ms)
-// 기존: const unsigned long cycle_sendSensor = 200;
-volatile uint16_t PERIOD_MS = 200;              // 기본 발행 주기(ms)
-volatile unsigned long cycle_sendSensor = 200;  // = PERIOD_MS
+volatile unsigned long cycle_readSensor = 80; // 센서 읽기 주기 (ms)
+volatile unsigned long cycle_sendSensor = 200;  // 센서 전소 주기 (ms)
 
 // 버튼 인터럽트
 volatile bool btn_pressed = false;
@@ -101,7 +101,7 @@ volatile uint16_t lastLidarCm = 0;
 volatile bool lidarSeen = false;
 
 // 필터 설정 (윈도우 사이즈)
-const int WIN = 5;              // 3 또는 5
+const int WIN = 3;              // 3 또는 5
 const int MIN_CM = 2;           // 유효 하한
 const int MAX_CM = 55;         // 유효 상한
 const int MAX_JUMP = 55;        // 한 번에 허용 점프(cm)
@@ -148,7 +148,12 @@ void setup() {
   LidarSerial.begin(115200, SERIAL_8N1, LIDAR_RX_PIN, LIDAR_TX_PIN);
 
   // 초기 주기 설정
-  set_period_ms(PERIOD_MS);
+  if (sensor_id == "ESP32-1") set_read_ms(70);
+  else if (sensor_id == "ESP32-2") set_read_ms(80);
+  else if (sensor_id == "ESP32-3") set_read_ms(90);
+  else if (sensor_id == "ESP32-4") set_read_ms(100);
+  else set_read_ms(60);
+  set_send_ms(200);
 }
 
 void loop() {
@@ -278,19 +283,25 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.println(F("[콜백] ACK 수신"));
   }
   if (strcmp(topic, topicCfg) == 0) {
-    StaticJsonDocument<64> doc;
+    StaticJsonDocument<96> doc;
     DeserializationError err = deserializeJson(doc, payload, length); // length 사용
-    if (!err && doc.containsKey("period_ms")) {
-      set_period_ms(doc["period_ms"].as<uint16_t>());
+    if (!err) {
+      if (doc.containsKey("read_ms"))  set_read_ms(doc["read_ms"].as<uint16_t>());
+      if (doc.containsKey("send_ms"))  set_send_ms(doc["send_ms"].as<uint16_t>());
+      // 선택: Hz 단위도 허용
+      if (doc.containsKey("read_hz"))  set_read_ms((uint16_t)max(60, (int)(1000.0 / doc["read_hz"].as<float>())));
+      if (doc.containsKey("send_hz"))  set_send_ms((uint16_t)max(50, (int)(1000.0 / doc["send_hz"].as<float>())));
+      // 하위호환: period_ms → 전송 주기
+      if (doc.containsKey("period_ms")) set_period_ms(doc["period_ms"].as<uint16_t>());
     } else {
-      // 숫자 단독 페이로드도 허용 예: "100"
+      // 숫자 단독 페이로드도 허용: 전송 주기
       char buf[16]; size_t n = min<size_t>(length, sizeof(buf)-1);
       memcpy(buf, payload, n); buf[n] = 0;
-      int ms = atoi(buf); if (ms > 0) set_period_ms((uint16_t)ms);
+      int ms = atoi(buf);
+      if (ms > 0) set_send_ms((uint16_t)ms);
     }
     return;
-  }
-
+    }
 }
 
 void reconnect() {
@@ -369,13 +380,22 @@ bool readTFLuna(uint16_t &distance_cm, uint16_t &strength, float &temp_c) {
   return false;
 }
 
-void set_period_ms(uint16_t ms) {
-  ms = constrain(ms, 60, 2000);                 // HC-SR04 안전 최소 ≈60ms
-  PERIOD_MS = ms;
+void set_read_ms(uint16_t ms) {
+  // HC-SR04 최소 여유: 60ms 이상 권장
+  ms = constrain(ms, 60, 2000);
+  cycle_readSensor = ms;
+  Serial.printf("[CFG] read_ms=%u (~%.2f Hz)\n", ms, 1000.0 / ms);
+}
+
+void set_send_ms(uint16_t ms) {
+  ms = constrain(ms, 50, 5000);
   cycle_sendSensor = ms;
-  // 필요 시 센서 읽기 주기도 동일화:
-  // cycle_readSensor = ms;
-  Serial.printf("[CFG] period=%u ms (~%.2f Hz)\n", PERIOD_MS, 1000.0 / PERIOD_MS);
+  Serial.printf("[CFG] send_ms=%u (~%.2f Hz)\n", ms, 1000.0 / ms);
+}
+
+// 하위호환: period_ms 들어오면 전송 주기만 변경
+void set_period_ms(uint16_t ms) {
+  set_send_ms(ms);
 }
 
 void push_cm(int v){
@@ -416,6 +436,4 @@ int readUltrasonicFiltered(){
   else               smooth_cm = (smooth_cm*6 + med*4) / 10;
 
   return smooth_cm;
-e;
-;
 }

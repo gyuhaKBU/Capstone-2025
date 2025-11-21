@@ -1,17 +1,17 @@
 # /srv/iot/collector.py
-import json, os, ssl, logging, math
+import json, os, ssl, logging
 import mysql.connector as mc
 from paho.mqtt import client as mqtt
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-# MQTT
+# ================== MQTT 설정 ==================
 MQTT_HOST = os.getenv("MQTT_HOST", "127.0.0.1")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
-# 형식: pi/<NH_ID>/<ROOM_ID>/data
-TOPIC     = os.getenv("MQTT_TOPIC", "pi/+/+/data")
+# 라즈베리파이 → 서버 토픽: pi/<NH_ID>/<ROOM_ID>/data
+MQTT_TOPIC = os.getenv("MQTT_TOPIC", "pi/+/+/data")
 
-# MySQL
+# ================== MySQL 설정 ==================
 DB_CFG = dict(
     host=os.getenv("DB_HOST", "127.0.0.1"),
     port=int(os.getenv("DB_PORT", "3306")),
@@ -20,81 +20,90 @@ DB_CFG = dict(
     database=os.getenv("DB_NAME", "kbuproject_db"),
     autocommit=True,
 )
-conn = mc.connect(**DB_CFG)
-cur  = conn.cursor()
 
-SQL = (
-    "INSERT INTO ultrasonic_u4 "
-    "(nursinghome_id, room_id, bed_id, call_button, fall_event, u1, u2, u3, u4, lidar) "
-    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
-)
+conn = mc.connect(**DB_CFG)
+cur = conn.cursor()
+
+# sensor_data 테이블에 맞는 INSERT
+# id, timestamp 는 DB에서 자동 생성
+SQL_INSERT = """
+INSERT INTO sensor_data
+    (nursinghome_id, room_id, bed_id, call_button, fall_event)
+VALUES
+    (%s, %s, %s, %s, %s)
+"""
+
 
 def _as_int(v, default=None):
     try:
-        if v is None: return default
-        # "12.7" 같은 값도 반올림
+        if v is None:
+            return default
         return int(round(float(v)))
     except Exception:
         return default
 
-def _first_int(d, *keys, default=None):
-    for k in keys:
-        if k in d:
-            return _as_int(d.get(k), default)
-    return default
 
-def parse(topic: str, payload: bytes):
-    # topic: pi/<NH_ID>/<ROOM_ID>/data
+def parse_message(topic: str, payload: bytes):
+    """
+    토픽: pi/<NH_ID>/<ROOM_ID>/data
+    페이로드(JSON):
+      {
+        "bed_id": "A",
+        "call_button": 0 or 1,
+        "fall_event": 0 or 1 or 2
+      }
+    """
     parts = topic.split("/")
-    if len(parts) < 4 or parts[0] != "pi" or parts[3] != "data":
-        raise ValueError(f"TOPIC_FMT_ERR: {topic}")
-    nh_id, room_id = parts[1].strip(), parts[2].strip()
+    if len(parts) != 4 or parts[0] != "pi" or parts[3] != "data":
+        raise ValueError(f"INVALID_TOPIC: {topic}")
+
+    nursinghome_id = parts[1].strip()
+    room_id        = parts[2].strip()
 
     d = json.loads(payload.decode("utf-8"))
 
-    bed_id     = str(d.get("bed_id", "")).strip()
-    call_btn   = 1 if _as_int(d.get("call_button", 0), 0) else 0
-    fall_event = 1 if _as_int(d.get("fall_event", 0), 0) else 0
+    bed_id = str(d.get("bed_id", "")).strip()
+    if not bed_id:
+        bed_id = "UNKNOWN"
 
-    # 거리값 수집 우선순위:
-    # 1) 명시적 u1~u4
-    # 2) 배열 u = [..]
-    # 3) 단일 ultrasonic -> u1로 저장
-    u1 = _first_int(d, "u1")
-    u2 = _first_int(d, "u2")
-    u3 = _first_int(d, "u3")
-    u4 = _first_int(d, "u4")
+    # call_button: 0/1로 강제
+    call_raw = _as_int(d.get("call_button", 0), 0) or 0
+    call_button = 1 if call_raw else 0
 
-    if any(v is not None for v in (u1,u2,u3,u4)) is False and isinstance(d.get("u"), list):
-        arr = d["u"]
-        u1 = _as_int(arr[0]) if len(arr) > 0 else None
-        u2 = _as_int(arr[1]) if len(arr) > 1 else None
-        u3 = _as_int(arr[2]) if len(arr) > 2 else None
-        u4 = _as_int(arr[3]) if len(arr) > 3 else None
+    # fall_event: 0/1/2 범위로 클램프
+    fe_raw = _as_int(d.get("fall_event", 0), 0)
+    if fe_raw is None:
+        fall_event = 0
+    elif fe_raw < 0:
+        fall_event = 0
+    elif fe_raw > 2:
+        fall_event = 2
+    else:
+        fall_event = fe_raw
 
-    if all(v is None for v in (u1,u2,u3,u4)) and "ultrasonic" in d:
-        u1 = _as_int(d.get("ultrasonic"))
+    return (nursinghome_id, room_id, bed_id, call_button, fall_event)
 
-    lidar = _first_int(d, "lidar", "tfmini", "tfluna")
 
-    return (nh_id, room_id, bed_id, call_btn, fall_event, u1, u2, u3, u4, lidar)
+def on_connect(client, userdata, flags, rc):
+    logging.info(f"MQTT CONNECTED rc={rc}")
+    client.subscribe(MQTT_TOPIC, qos=0)
+    logging.info(f"SUBSCRIBE {MQTT_TOPIC}")
 
-def on_connect(client, userdata, flags, rc, properties=None):
-    logging.info(f"CONNECTED rc={rc}")
-    client.subscribe(TOPIC, qos=0)
 
 def on_message(client, userdata, msg):
     try:
-        vals = parse(msg.topic, msg.payload)
-        cur.execute(SQL, vals)
-        logging.info(f"INSERT_OK id={cur.lastrowid} topic={msg.topic} vals={vals}")
+        vals = parse_message(msg.topic, msg.payload)
+        cur.execute(SQL_INSERT, vals)
+        logging.info(f"INSERT sensor_data OK topic={msg.topic} vals={vals}")
     except Exception:
-        logging.exception(f"INSERT_ERR topic={msg.topic} payload={msg.payload!r}")
+        logging.exception(f"INSERT sensor_data ERROR topic=%s payload=%r", msg.topic, msg.payload)
+
 
 def main():
-    client = mqtt.Client(protocol=mqtt.MQTTv311,
-                         callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+    client = mqtt.Client()
     client.enable_logger()
+
+    # 라즈베리파이와 동일한 TLS 설정
     client.tls_set(
         ca_certs="/etc/mosquitto/certs/ca.crt",
         certfile="/etc/mosquitto/certs/client.crt",
@@ -102,10 +111,13 @@ def main():
         cert_reqs=ssl.CERT_REQUIRED,
         tls_version=ssl.PROTOCOL_TLS_CLIENT,
     )
+
     client.on_connect = on_connect
     client.on_message = on_message
+
     client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
     client.loop_forever()
+
 
 if __name__ == "__main__":
     main()

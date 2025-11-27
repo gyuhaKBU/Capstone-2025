@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os, json, ssl, time, signal, sys, csv, joblib
 from datetime import datetime
 from collections import defaultdict, deque
@@ -23,9 +22,15 @@ GATEWAY_STATUS_TOPIC = f"gateway/{ROOM_ID}/status"            # 예: gateway/301
 LOCAL_BROKER        = "localhost"
 LOCAL_PORT          = 1883
 
-CA_FILE   = "/home/capstone/Desktop/certs/ca.crt"
-CERT_FILE = "/home/capstone/Desktop/certs/client.crt"
-KEY_FILE  = "/home/capstone/Desktop/certs/client.key"
+CA_FILE   = "/home/cap/venvs/IoT/code/certs/ca.crt"
+CERT_FILE = "/home/cap/venvs/IoT/code/certs/client.crt"
+KEY_FILE  = "/home/cap/venvs/IoT/code/certs/client.key"
+
+# 실시간 머신러닝 추론
+MODEL_DIR    = "/home/cap/venvs/IoT/code/models"
+XGB_PATH     = os.path.join(MODEL_DIR, "xgb_model.pkl")
+SCALER_PATH  = os.path.join(MODEL_DIR, "scaler.pkl")
+FEAT_PATH    = os.path.join(MODEL_DIR, "feature_order.json")
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -39,12 +44,6 @@ os.makedirs(LABEL_DIR, exist_ok=True)
 
 # label_out 폴더 안에 저장할 CSV 경로
 CSV_PATH = os.path.join(LABEL_DIR, "unlabeled_NH-001_301A.csv")
-
-# 실시간 머신러닝 추론
-MODEL_DIR    = "/home/capstone/venvs/iot/model"
-XGB_PATH     = os.path.join(MODEL_DIR, "xgb_model.pkl")
-SCALER_PATH  = os.path.join(MODEL_DIR, "scaler.pkl")
-FEAT_PATH    = os.path.join(MODEL_DIR, "feature_order.json")
 
 xgb_model = joblib.load(XGB_PATH)
 scaler    = joblib.load(SCALER_PATH)
@@ -149,11 +148,17 @@ def _flush_ultrasonic_if_due():
     last_ultra_flush = now
 
     ts = get_timestamp()
+    
+    # print(f"[DEBUG] _flush_ultrasonic_if_due 실행: {ts}")  # 디버그 추가
 
     for bed_id, state in bed_ultra_state.items():
         vals = [state[cid] for cid in ULTRA_COLS]
         non_empty = sum(v is not None for v in vals)
+        
+        # print(f"[DEBUG] bed_id={bed_id}, non_empty={non_empty}, vals={vals}")  # 디버그 추가
+        
         if non_empty < 3:
+            # print(f"[DEBUG] bed_id={bed_id} 스킵: 센서 데이터 부족 ({non_empty}/4)")  # 디버그 추가
             continue
 
         # CSV 기록
@@ -165,6 +170,8 @@ def _flush_ultrasonic_if_due():
             if not file_exists:
                 writer.writerow(CSV_COLUMNS)
             writer.writerow(row)
+        
+        # print(f"[DEBUG] CSV 저장 완료: bed_id={bed_id}")  # 디버그 추가
 
         # 윈도우용 버퍼에 추가
         bed_series[bed_id].append({
@@ -175,10 +182,11 @@ def _flush_ultrasonic_if_due():
             "ESP32-4": vals[3],
         })
         bed_step[bed_id] += 1
+        
+        # print(f"[DEBUG] bed_series 길이={len(bed_series[bed_id])}, bed_step={bed_step[bed_id]}")  # 디버그 추가
 
         # 여기서 바로 모델 실행
         _maybe_run_model_for_bed(bed_id)
-
 
 def extract_features_from_window(window_rows):
     """
@@ -208,34 +216,40 @@ def extract_features_from_window(window_rows):
     
 def _maybe_run_model_for_bed(bed_id: str):
     buf = bed_series[bed_id]
+    # print(f"[DEBUG] _maybe_run_model_for_bed 호출: bed_id={bed_id}, buf_len={len(buf)}")  # 디버그 추가
+    
     if len(buf) < WINDOW_SIZE:
+        # print(f"[DEBUG] 윈도우 크기 부족: {len(buf)} < {WINDOW_SIZE}")  # 디버그 추가
         return
 
     # stride=2 → 샘플 두 개마다 한 번만 예측
-    if bed_step[bed_id] % WINDOW_STRIDE != 0:
+    step = bed_step[bed_id]
+    if step % WINDOW_STRIDE != 0:
+        # print(f"[DEBUG] stride 조건 불만족: step={step}, stride={WINDOW_STRIDE}, {step % WINDOW_STRIDE}")  # 디버그 추가
         return
 
+    # print(f"[DEBUG] 모델 추론 시작!")  # 디버그 추가
+    
     window_rows = list(buf)  # 최근 8개
     x_raw = extract_features_from_window(window_rows)
     if x_raw is None:
+        # print(f"[DEBUG] 특징 추출 실패 (음수/NaN 포함)")  # 디버그 추가
         return
 
     # FEATURE_ORDER 순서에 맞게 컬럼 이름 붙여서 DataFrame 생성
     x_df = pd.DataFrame([x_raw], columns=FEATURE_ORDER)
 
-    # 스케일링 (이제 경고 안 뜸)
+    # 스케일링
     x_scaled = scaler.transform(x_df)
 
     # 예측 (라벨 0/1/2)
     proba = xgb_model.predict_proba(x_scaled)[0]
-    y_hat = int(np.argmax(proba))   # 원시 예측값
+    y_hat = int(np.argmax(proba))
     conf  = float(proba[y_hat])
 
     ts = get_timestamp()
 
-    # -----------------------------
     # fall_event 상태머신 업데이트
-    # -----------------------------
     hist = fall_pred_hist[bed_id]
     prev_raw = last_raw_pred[bed_id]
 
@@ -250,7 +264,7 @@ def _maybe_run_model_for_bed(bed_id: str):
         else:
             break
 
-    # 5초 창 안에서 2의 개수 (≈ 2초 이상인지 판단용)
+    # 5초 창 안에서 2의 개수
     cnt_2 = sum(1 for v in hist if v == 2)
 
     bstate = beds[bed_id]
@@ -258,31 +272,18 @@ def _maybe_run_model_for_bed(bed_id: str):
 
     new_state = cur_state
 
-    # 3) 5초 안에 2의 총합이 2초 이상 이다가 0이 되면 → 2(위험)
-    #    조건: 직전 원시 예측이 2, 현재 0, 그리고 창 안의 2 개수가 FALL_SUM_STEPS 이상
     if prev_raw == 2 and y_hat == 0 and cnt_2 >= FALL_SUM_STEPS:
         new_state = 2
-
-    # 2) 2가 2초 이상(연속) 지속되면 → 1(경고)
     elif run_2 >= FALL_WARN_STEPS:
         new_state = 1
-
-    # 1) fall_event값을 0/1만 유지하면 → 0(안정)
-    #    구현: 최근 5초 창 안에 2가 하나도 없으면 안정으로 리셋
     elif cnt_2 == 0:
         new_state = 0
-
-    # 그 외(2가 조금 섞였지만 기준 미달)는 기존 상태 유지
 
     bstate["fall_event"] = new_state
 
     # 터미널에 원시 예측 + 최종 상태 같이 출력
     proba_rounded = np.round(proba, 3)
     print(f"모델왈={y_hat} 상태={new_state} conf={conf:.3f} proba={proba_rounded} hist={list(hist)}")
-
-    # 여기서는 fall_event를 beds에만 저장하고,
-    # 서버 전송은 아직 하지 않으므로 _maybe_publish를 부르지 않는다.
-    # (_maybe_publish 호출은 아래 on_local_message 쪽에서 call_button용으로만 유지)
 
 def _sig_of(bed_id: str, bstate: dict):
     return (
@@ -364,7 +365,7 @@ def on_local_message(client, userdata, msg):
         print(f"\n[오류] JSON 파싱 실패: {e}")
         return
 
-    parts = msg.topic.split("/")  # esp/{bed_id}/{sensor_id}/data
+    parts = msg.topic.split("/")
     if len(parts) < 4:
         print(f"\n[오류] 토픽 형식 오류: {msg.topic}")
         return
@@ -375,6 +376,8 @@ def on_local_message(client, userdata, msg):
     # 여기서는 ultrasonic은 모델용/CSV용으로만 사용
     u_val = data.get("ultrasonic_cm", data.get("ultrasonic"))
 
+    # print(f"[DEBUG] 메시지 수신: bed_id={bed_id}, sensor={sensor_id_from_topic}, ultrasonic={u_val}")  # 디버그 추가
+
     call_raw = _as_int(data.get("call_button"), 0) or 0
     call_button = 1 if call_raw else 0
 
@@ -382,8 +385,7 @@ def on_local_message(client, userdata, msg):
     prev_call = int(bstate["call_button"] or 0)
     bstate["call_button"] = call_button
 
-    # ----- 초음파 값 bed별 상태에 반영 -----
-    # 토픽에서 센서 ID 정규화 (예: esp32-1 → ESP32-1)
+    # 토픽에서 센서 ID 정규화
     sensor_id = sensor_id_from_topic
     if sensor_id.lower().startswith("esp32-"):
         sensor_id = "ESP32-" + sensor_id.split("-", 1)[1]
@@ -391,24 +393,21 @@ def on_local_message(client, userdata, msg):
     if u_val is not None and sensor_id in ULTRA_COLS:
         try:
             bed_ultra_state[bed_id][sensor_id] = float(u_val)
-        except Exception:
+            # print(f"[DEBUG] bed_ultra_state 업데이트: bed_id={bed_id}, {sensor_id}={u_val}")  # 디버그 추가
+        except Exception as e:
+            # print(f"[DEBUG] 초음파 값 저장 실패: {e}")  # 디버그 추가
             pass
-    # --------------------------------------
 
-    # ----- ACK 발행 (pi_labeling.py와 동일 패턴) -----
+    # ACK 발행
     status = "received" if u_val is not None else "skipped"
     ack_topic = f"esp/{bed_id}/{sensor_id_from_topic}/ack"
     client.publish(ack_topic, json.dumps({"status": status}), qos=1, retain=False)
-    # ---------------------------------------------
 
     # 초음파 버퍼/모델 실행
     _flush_ultrasonic_if_due()
 
-    # 서버 전송 조건:
-    # - call_button: 0 -> 1 이면 전송
-    # - fall_event: 마지막으로 보낸 값에서 바뀌면 전송
+    # 서버 전송
     _maybe_publish(bed_id, prev_call)
-
 
 def on_local_disconnect(client, userdata, rc):
     print(f"\n[{get_timestamp()}] 로컬 브로커 연결 해제 (rc={rc})")

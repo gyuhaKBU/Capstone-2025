@@ -191,29 +191,42 @@ def _flush_ultrasonic_if_due():
 def extract_features_from_window(window_rows):
     """
     window_rows: 길이 8 리스트, 각 원소는 {"timestamp":..., "ESP32-1":..., ...}
-    반환: (20,) numpy 배열. 품질 나쁘면 None.
+    반환: FEATURE_ORDER 길이만큼의 1D numpy 배열. 품질 나쁘면 None.
     """
     feats = {}
 
     for col in ULTRA_COLS:
         arr = np.array([row[col] for row in window_rows], dtype=float)
 
-        # 실시간에서는 라벨 기반 보간 못 하므로, 
+        # 실시간에서는 라벨 기반 보간 못 하므로,
         # 음수/NaN 있으면 이 윈도우는 버리는 방식이 가장 단순하다.
         if np.any((arr < 0) | np.isnan(arr)):
             return None
 
+        # 1) 기본 통계
         feats[f"{col}_mean"]   = float(arr.mean())
         feats[f"{col}_std"]    = float(arr.std())
         feats[f"{col}_min"]    = float(arr.min())
         feats[f"{col}_max"]    = float(arr.max())
         feats[f"{col}_median"] = float(np.median(arr))
 
+        # 2) 윈도우 안 요동 크기
+        feats[f"{col}_range"]           = float(arr.max() - arr.min())
+        feats[f"{col}_first_last_diff"] = float(arr[-1] - arr[0])
+
+        # 3) 윈도우 안 속도/변화량
+        if len(arr) >= 2:
+            diffs = np.abs(np.diff(arr))        # |x_t - x_{t-1}|
+            feats[f"{col}_mean_diff"] = float(diffs.mean())
+            feats[f"{col}_max_diff"]  = float(diffs.max())
+        else:
+            feats[f"{col}_mean_diff"] = 0.0
+            feats[f"{col}_max_diff"]  = 0.0
+
     # FEATURE_ORDER 순서에 맞춰 벡터 구성
     x_vec = np.array([feats[k] for k in FEATURE_ORDER], dtype=float)
     return x_vec
 
-    
 def _maybe_run_model_for_bed(bed_id: str):
     buf = bed_series[bed_id]
     # print(f"[DEBUG] _maybe_run_model_for_bed 호출: bed_id={bed_id}, buf_len={len(buf)}")  # 디버그 추가

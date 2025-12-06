@@ -237,10 +237,49 @@ def main():
     signal.signal(signal.SIGINT, sig_handler)
     signal.signal(signal.SIGTERM, sig_handler)
 
+    # [1] 시작 시 모드 선택
+    print("="*60)
+    mode = input("모드를 선택하세요 (0: 단거리/51cm, 1: 장거리/180cm): ").strip()
+    
+    cfg_payload = {}
+    if mode == '0':
+        cfg_payload = {"max_cm": 51, "max_jump": 49}
+        print(">> 선택: 모드 0 (단거리 설정 - 51cm)")
+    elif mode == '1':
+        cfg_payload = {"max_cm": 155, "max_jump": 153}
+        print(">> 선택: 모드 1 (장거리 설정 - 180cm)")
+    else:
+        print(">> 잘못된 입력입니다. 설정을 전송하지 않습니다.")
+    print("="*60)
+
+    # MQTT 연결
     client.will_set(GATEWAY_STATUS_TOPIC, "offline", qos=1, retain=True)
     client.connect(LOCAL_BROKER, LOCAL_PORT, keepalive=60)
     client.loop_start()
+
+    # [2] 첫 데이터 수신 대기 (방 번호/bed_id 파악용)
+    print(f"[{now_kst_ms()}] ESP 연결 대기 중... (데이터 수신 시 설정 전송)")
     
+    # on_message에서 selected_bed_id가 갱신될 때까지 대기
+    while selected_bed_id is None:
+        if not running: return
+        time.sleep(0.1)
+
+    # [3] 타겟 확인 후 설정 전송 (개별 전송 루프)
+    if cfg_payload:
+        print(f"[{now_kst_ms()}] 타겟 감지됨 ({selected_bed_id}). 설정 전송 시작...")
+        
+        # ORDER 리스트: ['ESP32-1', 'ESP32-2', 'ESP32-3', 'ESP32-4']
+        for sensor in ORDER: 
+            # 토픽 예: esp/301A/ESP32-1/cfg
+            topic = f"esp/{selected_bed_id}/{sensor}/cfg"
+            
+            payload_str = json.dumps(cfg_payload)
+            client.publish(topic, payload_str, qos=1)
+            print(f"  -> 전송완료: {topic} | 값: {payload_str}")
+            time.sleep(0.05) # 브로커 부하 방지용 미세 딜레이
+
+    # (이하 기존 코드와 동일: CSV 저장 및 키보드 스레드 시작)
     ensure_trailing_newline(CSV_PATH)
     write_header_if_new(CSV_PATH)
 
@@ -251,8 +290,6 @@ def main():
     print("="*60)
     print(f"[{now_kst_ms()}] 라벨 기록 시작")
     print(f"  저장: {CSV_PATH}")
-    print(f"  대상 센서: {', '.join(ORDER)}")
-    print(f"  주기: {SAMPLE_PERIOD}s")
     print("="*60)
 
     try:
@@ -260,6 +297,5 @@ def main():
             time.sleep(1.0)
     finally:
         cleanup()
-
 if __name__ == "__main__":
     main()

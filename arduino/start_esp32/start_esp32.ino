@@ -7,7 +7,7 @@
  */
 #define room_id "301A" // 방 id
 #define bed_id "A" // 침대 id
-#define sensor_id "ESP32-1" // 센서 id
+#define sensor_id "ESP32-4" // 센서 id
 
 // [핀 매크로]
 // {HC-SR04 초음파 센서}
@@ -103,8 +103,8 @@ volatile bool lidarSeen = false;
 // 필터 설정 (윈도우 사이즈)
 const int WIN = 3;              // 3 또는 5
 const int MIN_CM = 2;           // 유효 하한
-const int MAX_CM = 55;         // 유효 상한
-const int MAX_JUMP = 55;        // 한 번에 허용 점프(cm)
+int MAX_CM = 51;         // 유효 상한
+int MAX_JUMP = 49;        // 한 번에 허용 점프(cm)
 int  ringbuf[5];                // 최대 5까지 지원
 int  rcount = 0, rpos = 0;
 int  smooth_cm = -1;
@@ -293,6 +293,17 @@ void callback(char* topic, byte* payload, unsigned int length) {
       if (doc.containsKey("send_hz"))  set_send_ms((uint16_t)max(50, (int)(1000.0 / doc["send_hz"].as<float>())));
       // 하위호환: period_ms → 전송 주기
       if (doc.containsKey("period_ms")) set_period_ms(doc["period_ms"].as<uint16_t>());
+      // ... 기존 send_hz 처리 코드 아래에 추가 ...
+      if (doc.containsKey("send_hz"))  set_send_ms((uint16_t)max(50, (int)(1000.0 / doc["send_hz"].as<float>())));
+
+      if (doc.containsKey("max_cm")) {
+        MAX_CM = doc["max_cm"].as<int>();
+        Serial.printf("[CFG] MAX_CM 변경됨: %d\n", MAX_CM);
+      }
+      if (doc.containsKey("max_jump")) {
+        MAX_JUMP = doc["max_jump"].as<int>();
+        Serial.printf("[CFG] MAX_JUMP 변경됨: %d\n", MAX_JUMP);
+      }
     } else {
       // 숫자 단독 페이로드도 허용: 전송 주기
       char buf[16]; size_t n = min<size_t>(length, sizeof(buf)-1);
